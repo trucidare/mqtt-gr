@@ -1,0 +1,57 @@
+export *
+
+import Server from "./libs/sockets-gr/server"
+
+record MQTTServer {
+    initialize: () -> Void,
+    start: () -> Void,
+    loop: () -> Void
+}
+
+
+let new = () => {
+    let socketServer = Server.new(0, 5)
+
+    let _initialize = () => {
+        socketServer.onConnected(
+            (client) => {
+                print("Client connected")
+                void
+            }
+        )
+
+
+        socketServer.onDisconnected(
+            (client) => {
+                print("Client disconnected")
+                void
+            }
+        )
+
+        socketServer.onReceive(
+            (client, message) => {
+                print("Client want: \r\n"++ message)
+                void
+            }
+        )
+        void
+    }
+
+    let _start = () => {
+        socketServer.start()
+        void
+    }
+
+    let _loop = () => {
+        socketServer.accecptClient();
+        void
+    }
+
+
+    // return
+    {
+        initialize: _initialize,
+        start: _start,
+        loop: _loop
+    }
+}

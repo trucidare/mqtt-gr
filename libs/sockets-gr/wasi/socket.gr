@@ -291,7 +291,7 @@ export let socketSend = (fd: FileDescriptor, content: String) => {
 
   let err = sock_send(fd, iovs, 1n, flags, nwritten)
   sock_shutdown(fd,combineSdFlags(0n, []))
-  fdClose(a)
+  //fdClose(a)
 
   if (err != Wasi._ESUCCESS) {
     Memory.free(iovs)

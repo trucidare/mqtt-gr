@@ -1,0 +1,12 @@
+import Mqtt from "../mqtt"
+
+let broker = Mqtt.new()
+
+broker.initialize()
+broker.start()
+
+print("Running")
+
+while(true) {
+    broker.loop()
+}

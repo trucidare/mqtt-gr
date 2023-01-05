@@ -3,6 +3,7 @@ export *
 import Server from "./libs/sockets-gr/server"
 import Array from "array"
 import String from "string"
+import Char from "char"
 
 let _MQTT_VERSION_3_1_1 = 4
 let _MQTTBROKER_MY_NUM =  4
@@ -91,7 +92,40 @@ let new = () => {
     }
 
     let compare = (topic: String, length: Number, subscription: MqttSubscription) => {
-        true
+        let mut cs = 0;
+        let mut ct = 0;
+
+        for (ct = 0; ct < length; ct = incr(ct)) {
+            if (cs >= subscription.topicLength) {
+                false
+                break
+            } 
+            if (String.charAt(ct, topic) == String.charAt(cs, subscription.topicName)) {
+                cs = incr(cs)
+            } else {
+                if (String.charAt(cs, subscription.topicName) == Char.fromCode(0x28)) {
+                    if ((String.charAt(ct, topic) == Char.fromCode(0x2F)) && (cs < subscription.topicLength - 1) && (String.charAt(cs+1, subscription.topicName) == Char.fromCode(0x2F))) {
+                            cs = incr(cs)
+                            cs = incr(cs)
+                        }
+                } else {
+                    false
+                    break
+                }
+            }
+        }
+
+        if ((String.charAt(cs,subscription.topicName) == Char.fromCode(0x2B)) && (cs == subscription.topicLength -1)) {
+            true
+        }
+        else if (cs <subscription.topicLength) {
+            false
+        } 
+        else if (cs == subscription.topicLength) {
+            false
+        } else {
+            false
+        }
     }
 
     let subscribe = (num: Number, topic: String, length: Number) => {
@@ -208,7 +242,6 @@ let new = () => {
         void
     }
 
-    // TODO: Compare
     // TODO: Publish
     // TODO: sendMessage
     // TODO: sendAnswer

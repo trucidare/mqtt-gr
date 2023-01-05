@@ -80,6 +80,7 @@ import foreign wasm sock_shutdown: (
 ) -> WasmI32 from "wasi_snapshot_preview1";
 
 /**
+ * https://hackmd.io/@CfxvloLVRpizCIUaZyFHRg/S12u6TwA4
  * _inOffset: number,
         _outOffset: number,
         _nsubscriptions: number,

@@ -1,8 +1,14 @@
 import Mqtt from "../mqtt"
+import Array from "array"
 
 let broker = Mqtt.new()
 
 broker.initialize()
+broker.onReceive((client, message) => {
+    print("Message: " ++ message)
+    void
+})
+broker.subscripe("#")
 broker.start()
 
 print("Running")

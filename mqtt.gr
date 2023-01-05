@@ -1,18 +1,150 @@
 export *
 
 import Server from "./libs/sockets-gr/server"
+import Array from "array"
+import String from "string"
 
-record MQTTServer {
+let _MQTT_VERSION_3_1_1 = 4
+let _MQTTBROKER_MY_NUM =  4
+let _MQTTBROKER_MAX_NUM = 5
+
+let _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX =       5
+let _MQTTBROKER_MESSAGE_STACK_MAX =              5
+let _MQTTBROKER_TOPIC_MAX_LENGTH =               64
+let _MQTTBROKER_PAYLOAD_MAX_LENGTH =             255
+
+// Packets
+let _CONNECT = 1
+let _CONNACK = 2
+let _PUBLISH = 3
+let _PUBACK = 4
+let _PUBREC = 5 
+let _PUBREL = 6
+let _PUBCOMP = 7
+let _SUBSCRIBE = 8
+let _SUBACK = 9
+let _UNSUBSCRIBE = 10
+let _UNSUBACK = 11
+let _PINGREQ = 12
+let _PINGRESP = 13
+let _DISCONNECT = 14
+
+// Connect flags
+let _CLEAN_SESSION = 0x02
+let _WILL_FLAG = 0x04
+let _WILL_QOS = 0x18
+let _WILL_RETAIN = 0x20
+let _PASSWORD_FLAG = 0x40
+let _USER_NAME_FLAG = 0x80
+
+// Sonnack sp
+let _SESSION_PRESENT_ZERO = 0
+let _SESSION_PRESENT_ONE = 1
+
+// Connack rc
+let _CONNECT_ACCEPTED = 0    //"Connection Accepted"
+let _CONNECT_REFUSED_UPV = 1 //"Connection Refused: unacceptable protocol version"
+let _CONNECT_REFUSED_IR = 2  //"Connection Refused: identifier rejected"
+let _CONNECT_REFUSED_SU = 3  //"Connection Refused: server unavailable"
+let _CONNECT_REFUSED_BUP = 4 //"Connection Refused: bad user name or password"
+let _CONNECT_REFUSED_NA = 5  //"Connection Refused: not authorized"
+
+
+record MqttSubscription {
+    mut status: Bool,
+    mut topicName: String,
+    mut topicLength: Number
+}
+
+record MqttClient {
+    mut state: Bool,
+    subscriptions: Array<MqttSubscription>
+}
+
+record MqttBroker {
     initialize: () -> Void,
     start: () -> Void,
-    loop: () -> Void
+    loop: () -> Void,
+    connect: (Number) -> Void,
+    subscripe: (String) -> Void,
+    unsubscribe: (String) ->Void,
+    publish: (String, Bytes, Number, Bool) -> Void,
+    onReceive: ((MqttClient, String) -> Void) -> Void,
 }
 
 
 let new = () => {
     let socketServer = Server.new(0, 5)
+    let mqttClients = Array.make(5, {
+                state: false, 
+                subscriptions: Array.make(_MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX, {
+                    status: false, 
+                    topicName: "", 
+                    topicLength: 0
+                } : MqttSubscription)
+            } : MqttClient)
 
+    let mut cbReceive = (cb: client: MqttClient, message: String) => {void}
+
+    let msbLsb = (byte) => {
+        (byte <<8) + (byte+1)
+    }
+
+    let compare = (topic: String, length: Number, subscription: MqttSubscription) => {
+        true
+    }
+
+    let subscribe = (num: Number, topic: String, length: Number) => {
+        // TODO
+        void
+    }   
+
+    let unsubscribe = (num: Number, topic: Option<String>, length: Number) => {
+        let i = 0
+        match (topic) {
+            Some(s) =>  {
+                for (let mut i = 0; i < _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX; i = incr(1)) {
+                    if (s == mqttClients[num].subscriptions[i].topicName)
+                        mqttClients[num].subscriptions[i].status = false
+                }
+            },
+            None => {
+                for (let mut i = 0; i <  _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX; i = incr(i)) {
+                    mqttClients[num].subscriptions[i].status = false
+                }
+            }
+        }
+        void
+    }
+    
+    let numIsIncorrect = (num: Number) => {
+        if (num >= _MQTTBROKER_MAX_NUM) {
+            true
+        } else {
+            false
+        }
+    }
+
+    let clientIsConnected = (num: Number) => {
+        if (num == _MQTTBROKER_MY_NUM) {
+            true
+        } else if (numIsIncorrect(num)) {
+            false
+        } else {
+            mqttClients[num].state
+        }
+    }
+
+    
+ 
     let _initialize = () => {
+        for (let mut i = 0; i < 5; i = incr(i)) {
+            mqttClients[i].state = false;
+            for (let mut j = 0; j < _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX; j = incr(j)) {
+                mqttClients[i].subscriptions[j].status = false
+            }
+        }
+
         socketServer.onConnected(
             (client) => {
                 print("Client connected")
@@ -47,11 +179,50 @@ let new = () => {
         void
     }
 
+    let _setReceiveCallback = (cb: ((MqttClient, String) -> Void)) => {
+        cbReceive = cb
+    }
+
+
+    let _connect = (num: Number) => {
+        mqttClients[num].state = true
+    }
+
+    let _subscribe = (topic: String) => {
+        subscribe(_MQTTBROKER_MY_NUM, topic, String.length(topic))
+    }
+
+    let _unsubscribe = (topic: String) => {
+        unsubscribe(_MQTTBROKER_MY_NUM, Some(topic), String.length(topic))
+    }
+
+    let _disconnect = (num: Number) => {
+        if (!numIsIncorrect(num)) {
+            unsubscribe(num, None, 0)
+            mqttClients[num].state = false
+            // TODO: Disconnect fd from server
+        }
+    }
+
+    let _publish = (topic: String, payload: Bytes, length: Number, retain: Bool) => {
+        void
+    }
+
+    // TODO: Compare
+    // TODO: Publish
+    // TODO: sendMessage
+    // TODO: sendAnswer
+    // TODO: parinsg
 
     // return
     {
         initialize: _initialize,
         start: _start,
-        loop: _loop
+        loop: _loop,
+        connect: _connect,
+        subscripe: _subscribe,
+        unsubscribe: _unsubscribe,
+        publish: _publish,
+        onReceive: _setReceiveCallback,
     }
 }

@@ -4,7 +4,7 @@
 
 import WasmI32, {  add as (+), mul as (*), shl as (<<), shrS as (>>), ne as (!=), or as (|)} from "runtime/unsafe/wasmi32"
 import File, { fdClose, FdRead} from "sys/file"
-import SocketWasi, {sock_recv, sock_send, sock_accept, sock_shutdown} from "./wasi"
+import SocketWasi, {sock_recv, sock_send, sock_accept, sock_shutdown, poll_oneoff} from "./wasi"
 import Wasi from "runtime/wasi"
 import Memory from "runtime/unsafe/memory"
 import {allocateString, tagSimpleNumber} from "runtime/dataStructures"
@@ -275,7 +275,6 @@ export let socketAccept = (fd: FileDescriptor) => {
 @unsafe
 export let socketSend = (fd: FileDescriptor, content: String) => {
   let fdArg = fd
-      let a = match(fd) { FileDescriptor(n) => File.FileDescriptor(n) }
   let fd = match(fdArg) {FileDescriptor(n) => WasmI32.fromGrain(n) >> 1n}
   
   let len = WasmI32.fromGrain(String.length(content))
@@ -349,6 +348,13 @@ export let socketReceive = (fd: FileDescriptor, size: Number) => {
     }
 }
 
+@unsafe
+export let socketClose = (fd: FileDescriptor) => {
+    let a = match(fd) { FileDescriptor(n) => File.FileDescriptor(n) }
+    fdClose(a)
+    void
+}
+
 /**
  * Get error string from errno
  *
@@ -363,4 +369,11 @@ export let socketReceive = (fd: FileDescriptor, size: Number) => {
 @unsafe
 export let errNoFromSystemError = (err) => {
   match (err) { Wasi.SystemError(e) => e, _ => 0 }
+}
+
+
+@unsafe 
+export let sleep = (delay: Number) => {
+  SocketWasi.poll_oneoff(1000n,2n,2n)
+  void
 }

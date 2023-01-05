@@ -79,6 +79,39 @@ import foreign wasm sock_shutdown: (
   WasmI32  /*sd flags*/
 ) -> WasmI32 from "wasi_snapshot_preview1";
 
+/**
+ * _inOffset: number,
+        _outOffset: number,
+        _nsubscriptions: number,
+        _neventsOffset: number,
+
+        m3ApiRawFunction(m3_wasi_generic_poll_oneoff)
+{
+    m3ApiReturnType  (uint32_t)
+    m3ApiGetArgMem   (const __wasi_subscription_t * , in)
+    m3ApiGetArgMem   (__wasi_event_t *              , out)
+    m3ApiGetArg      (__wasi_size_t                 , nsubscriptions)
+    m3ApiGetArgMem   (__wasi_size_t *               , nevents)
+
+    m3ApiCheckMem(in,       nsubscriptions * sizeof(__wasi_subscription_t));
+    m3ApiCheckMem(out,      nsubscriptions * sizeof(__wasi_event_t));
+    m3ApiCheckMem(nevents,  sizeof(__wasi_size_t));
+
+    // TODO: unstable/snapshot_preview1 compatibility
+
+    __wasi_errno_t ret = __wasi_poll_oneoff(in, out, nsubscriptions, nevents);
+
+    WASI_TRACE("nsubscriptions:%d | nevents:%d", nsubscriptions, *nevents);
+
+    m3ApiReturn(ret);
+}
+ */
+import foreign wasm poll_oneoff: (
+  WasmI32,
+  WasmI32,
+  WasmI32,
+  WasmI32
+) -> WasmI32 from "wasi_snapshot_preview1";
 
 // RiFlags
 let _RIPEEK = 0n
@@ -94,3 +127,6 @@ let _SDWR = 1n
 
 // SiFlags
 let _SIDEFAULT = 0n
+
+// Event types
+let __WASI_EVENTTYPE_CLOCK = 0n

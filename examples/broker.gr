@@ -1,6 +1,7 @@
 import Mqtt from "../mqtt"
 import Array from "array"
 import Char from "char"
+import {schedYield} from "sys/process"
 
 let broker = Mqtt.new()
 
@@ -16,4 +17,7 @@ print("Running")
 
 while(true) {
     broker.loop()
+
+    schedYield()
+    void
 }

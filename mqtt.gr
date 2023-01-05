@@ -92,40 +92,48 @@ let new = () => {
     }
 
     let compare = (topic: String, length: Number, subscription: MqttSubscription) => {
-        let mut cs = 0;
-        let mut ct = 0;
+        let mut cs = 0
+        let mut ct = 0
+        let mut result = false
 
-        for (ct = 0; ct < length; ct = incr(ct)) {
+        for (ct = 0; ct < length; ct += 1) {
+
             if (cs >= subscription.topicLength) {
-                false
+                result = false
                 break
             } 
             if (String.charAt(ct, topic) == String.charAt(cs, subscription.topicName)) {
-                cs = incr(cs)
+                cs += 1
             } else {
-                if (String.charAt(cs, subscription.topicName) == Char.fromCode(0x28)) {
+                if (String.charAt(cs, subscription.topicName) == Char.fromCode(0x2B)) {
                     if ((String.charAt(ct, topic) == Char.fromCode(0x2F)) && (cs < subscription.topicLength - 1) && (String.charAt(cs+1, subscription.topicName) == Char.fromCode(0x2F))) {
-                            cs = incr(cs)
-                            cs = incr(cs)
+                            cs += 2
                         }
+                } else if (String.charAt(cs, subscription.topicName) == Char.fromCode(0x23)) {
+                    result = true
+                    break
                 } else {
-                    false
+                    result = false
                     break
                 }
             }
         }
 
-        if ((String.charAt(cs,subscription.topicName) == Char.fromCode(0x2B)) && (cs == subscription.topicLength -1)) {
-            true
+        if (!result) {
+            if ((String.charAt(cs,subscription.topicName) == Char.fromCode(0x2B)) && (cs == subscription.topicLength -1)) {
+                result = true
+            }
+            else if (cs < subscription.topicLength) {
+                result = false
+            } 
+            else if (cs == subscription.topicLength) {
+                result = true
+            } else {
+                result= false
+            }
         }
-        else if (cs <subscription.topicLength) {
-            false
-        } 
-        else if (cs == subscription.topicLength) {
-            false
-        } else {
-            false
-        }
+
+        result
     }
 
     let subscribe = (num: Number, topic: String, length: Number) => {
@@ -172,6 +180,8 @@ let new = () => {
     
  
     let _initialize = () => {
+        print(compare("/hallo/welt/1", 13 , {status: true, topicName: "/hallo/welt/2", topicLength: 13}))
+
         for (let mut i = 0; i < 5; i = incr(i)) {
             mqttClients[i].state = false;
             for (let mut j = 0; j < _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX; j = incr(j)) {
@@ -210,6 +220,7 @@ let new = () => {
 
     let _loop = () => {
         socketServer.accecptClient();
+        
         void
     }
 
@@ -239,6 +250,12 @@ let new = () => {
     }
 
     let _publish = (topic: String, payload: Bytes, length: Number, retain: Bool) => {
+        void
+    }
+
+    let sendAnswer = (num: Number, fixedHeader: Bytes, fixedHeaderLsb: Bytes, fixedHeaderRemaining: Number, payload: Bytes, payloadLength: Number) => {
+        let mut i = 0;
+        let answerMsg = Array.make(fixedHeaderRemaining + 2,0);
         void
     }
 

@@ -1,0 +1,3 @@
+[submodule "libs/sockets-gr"]
+	path = libs/sockets-gr
+	url = https://github.com/trucidare/sockets-gr.git

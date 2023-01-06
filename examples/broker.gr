@@ -3,6 +3,7 @@ import Array from "array"
 import Char from "char"
 import Option from "option"
 import Bytes from "bytes"
+import Map from "map"
 
 import {schedYield} from "sys/process"
 

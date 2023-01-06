@@ -65,7 +65,6 @@ let new = (fd: Number, maxClients: Number) => {
                                 Err(e)
                         } 
                     }
-                    //str = str ++ readString(in)
                 } 
 
                 Ok(str)

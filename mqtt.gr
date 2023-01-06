@@ -8,12 +8,15 @@ import Char from "char"
 import Bytes from "bytes"
 import Option from "option"
 import Int32 from "int32"
+import Map from "map"
+import {schedYield} from "sys/process"
+
 
 let _MQTT_VERSION_3_1_1 = 4
 let _MQTTBROKER_MY_NUM =  0
 let _MQTTBROKER_MAX_NUM = 10
 
-let _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX =       10
+let _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX =       3
 let _MQTTBROKER_MESSAGE_STACK_MAX =              5
 let _MQTTBROKER_TOPIC_MAX_LENGTH =               64
 let _MQTTBROKER_PAYLOAD_MAX_LENGTH =             255
@@ -55,7 +58,7 @@ let _CONNECT_REFUSED_BUP = 4
 let _CONNECT_REFUSED_NA = 5  
 
 let debug = (text) => {
-    if (1 == 0) {
+    if (1 == 1) {
         print(text)
     }
 }
@@ -68,7 +71,7 @@ record MqttSubscription {
 record MqttClient {
     mut state: Bool,
     mut socketClient: Option<Client.Client>,
-    subscriptions: Array<MqttSubscription>
+    subscriptions: Map.Map<String, MqttSubscription>
 }
 
 record MqttBroker {
@@ -86,15 +89,15 @@ record MqttBroker {
 let new = () => {
     let mut callbackEnabled = false
     let socketServer = Server.new(0, 10)
-    let mqttClients = Array.make(10, {
+    let mqttClients = Map.make()
+
+           /**
+             * 10, {
                 state: false, 
                 socketClient: None,
-                subscriptions: Array.make(_MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX, {
-                    status: false, 
-                    topicName: "", 
-                    topicLength: 0
-                } : MqttSubscription)
-            } : MqttClient)
+                subscriptions: Map.make() 
+            } : MqttClient
+             */
 
     let mut cbReceive = (cb: client: MqttClient,topic: String, message: String) => {void}
 
@@ -149,50 +152,44 @@ let new = () => {
     }
 
     let subscribeInternal = (num: Number, topic: String, length: Number) => {
-        let mut result = false;
-        let mut clear = _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX
+        let client = Map.get(num, mqttClients)
+        if (Option.isSome(client)) {    
+            match (Map.get(topic, Option.unwrap(client).subscriptions)) {
+                Some(s) => {
+                    s.status = true
+                },
+                None => {
+                    Map.set(topic, {
+                        status: true, 
+                        topicName: topic, 
+                        topicLength: length
+                    } : MqttSubscription, Option.unwrap(client).subscriptions)
+                    void
+                }            
 
-        if (length < _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX) {
-
-            for (let mut i = 0; i < _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX; i += 1) {
-                if (!mqttClients[num].subscriptions[i].status) {
-                    if (clear == _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX) {
-                        clear = i
-                    } else {
-                        if (mqttClients[num].subscriptions[i].topicName == topic) {
-                            result = true
-                            break
-                        }
-                    }
-                }
             }
         }
-
-        if (clear != _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX) {
-            mqttClients[num].subscriptions[clear].status = true
-            mqttClients[num].subscriptions[clear].topicName = topic
-            mqttClients[num].subscriptions[clear].topicLength = length
-
-            result = true 
-        } else {
-            result = false;
-        }
-        result
     }   
 
     let unsubscribe = (num: Number, topic: Option<String>, length: Number) => {
         let i = 0
         match (topic) {
             Some(s) =>  {
-                for (let mut i = 0; i < _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX; i = incr(1)) {
-                    if (s == mqttClients[num].subscriptions[i].topicName)
-                        mqttClients[num].subscriptions[i].status = false
+                let client = Map.get(num, mqttClients)
+                if (Option.isSome(client)) {    
+                    let k = Map.get(s, Option.unwrap(client).subscriptions)
+                    if (Option.isSome(k)) {
+                        Option.unwrap(k).status = false
+                    }
                 }
             },
             None => {
-                for (let mut i = 0; i <  _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX; i = incr(i)) {
-                    mqttClients[num].subscriptions[i].status = false
-                }
+                let client = Map.get(num, mqttClients)
+            if (Option.isSome(client)) {    
+                Map.forEach((x, y) => {
+                    y.status = false
+                }, Option.unwrap(client).subscriptions)
+            }
             }
         }
         void
@@ -207,29 +204,46 @@ let new = () => {
     }
 
     let clientIsConnected = (num: Number) => {
+        let mut result = false
+
         if (num == _MQTTBROKER_MY_NUM) {
-            true
+            result = true
         } else if (numIsIncorrect(num)) {
-            false
+            result = false
         } else {
-            mqttClients[num].state
+            let client = Map.get(num, mqttClients)
+            if (Option.isSome(client)) {        
+                result = Option.unwrap(client).state
+            } else {
+                result = false
+            }
         }
+
+        result
     }
 
 
     let _connect = (num: Number) => {
-        mqttClients[num].state = true
+        let client = Map.get(num, mqttClients)
+        if (Option.isSome(client)) {        
+            Option.unwrap(client).state = true
+        } 
     }
 
     let _disconnect = (num: Number) => {
         if (!numIsIncorrect(num)) {
             unsubscribe(num, None, 0)
-            mqttClients[num].state = false
-            socketServer.disconnectClient(Option.unwrap(mqttClients[num].socketClient))
+            let client = Map.get(num, mqttClients)
+            if (Option.isSome(client)) {                
+                let kk = Option.unwrap(client)
+                kk.state = false
+                socketServer.disconnectClient(Option.unwrap(kk.socketClient))
+            }
         }
     }
 
     let _subscribe = (topic: String) => {
+
         subscribeInternal(_MQTTBROKER_MY_NUM, topic, String.length(topic))
         void
     }
@@ -243,6 +257,8 @@ let new = () => {
         let mut return = false
         let mut ii = 0
 
+        schedYield()
+
         let answer = Bytes.make(fixedHeaderRemaining +2)
 
         Bytes.setInt8(0, Int32.fromNumber(((fixedHeader << 4) | fixedHeaderLsb)), answer)
@@ -254,25 +270,28 @@ let new = () => {
         }
 
         match (fixedHeader) {
-            _ when fixedHeader == _CONNACK => debug("[MQTT]["++toString(i)++"][SEND] CONNACK"),
+            _ when fixedHeader == _CONNACK => debug("[MQTT]["++toString(num)++"][SEND] CONNACK"),
             _ when fixedHeader == _SUBACK => {
-                for (let mut i = 0; i < Option.unwrap(payloadLength); i += 1) {
-                    Bytes.setInt8(i, Bytes.getInt8U(i,  Option.unwrap(payload)) ,answer)
+                for (let mut i = ii; i < Option.unwrap(payloadLength); i += 1) {
+                    Bytes.setInt8(i, Bytes.getInt8U(i-ii,  Option.unwrap(payload)) ,answer)
                 }
-                debug("[MQTT]["++toString(i)++"][SEND] SUBACK")
+                debug("[MQTT]["++toString(num)++"][SEND] SUBACK")
                 void
             },
-            _ when fixedHeader == _UNSUBACK => debug("[MQTT]["++toString(i)++"][SEND] UNSUBACK"),
-            _ when fixedHeader == _PINGRESP => debug("[MQTT]["++toString(i)++"][SEND] PINGRESP"),
+            _ when fixedHeader == _UNSUBACK => debug("[MQTT]["++toString(num)++"][SEND] UNSUBACK"),
+            _ when fixedHeader == _PINGRESP => debug("[MQTT]["++toString(num)++"][SEND] PINGRESP"),
             _ => {
                 return = true
             }
         }
         
-        if (!return) {
-            
-            // TODO Send binary: answer_msg, fixedHeaderRemaining +2
-            socketServer.sendBytes(Option.unwrap(mqttClients[num].socketClient),  answer, Bytes.length(answer) )
+        if (!return) {       
+            let client = Map.get(num, mqttClients)
+            if (Option.isSome(client)) {     
+                let k = Option.unwrap(client)
+                socketServer.sendBytes(Option.unwrap(k.socketClient),  answer, Bytes.length(answer) )
+                void
+            }
             void
         }
         void
@@ -297,33 +316,35 @@ let new = () => {
             Bytes.setInt8(i, Bytes.getInt8U(i - topicLength - 4, payload), answer)
         }
         
-        socketServer.sendBytes(Option.unwrap(mqttClients[num].socketClient),  answer, Bytes.length(answer))
+        let client = Map.get(num, mqttClients)
+        if (Option.isSome(client)) {
+            socketServer.sendBytes(Option.unwrap(Option.unwrap(client).socketClient),  answer, Bytes.length(answer))
+            void
+        }
         void
     }
     
-    let publishToClient = (num: Number, topic: Bytes, payload: Bytes, retain: Number) => {
+    let publishToClient = (num: Number, topic: Bytes, payload: Bytes, retain: Number) => {        
         if (Bytes.length(topic) <= _MQTTBROKER_TOPIC_MAX_LENGTH) {
             let topicStr = Bytes.toString(topic)
 
-            for (let mut i = 0; i < _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX; i += 1) {
-                if (i == num) {
-                    continue
-                } else {
-                    if (clientIsConnected(i)) {
-                        for (let mut j = 0; j < _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX; j += 1) {
-                            if (mqttClients[i].subscriptions[j].status) {
-                                if (compare(topicStr, mqttClients[i].subscriptions[j])) {
-                                    if (i == _MQTTBROKER_MY_NUM) {
-                                        callbackEnabled  = true
-                                    } else {
-                                        sendMessage(i, topic, payload)
-                                    }
+            Map.forEach((k,v) => {
+                if (clientIsConnected(k)) {
+                    Map.forEach((kk,vv) => {
+                        if (v.state) {
+                            if (vv.status && compare(topicStr, vv)) {
+                                if (k == _MQTTBROKER_MY_NUM) {
+                                    callbackEnabled = true
+                                } else {
+                                    sendMessage(k, topic, payload)
                                 }
                             }
                         }
-                    }
-                }
-            }
+                        void
+                    }, v.subscriptions)                        
+                }   
+                void
+            }, mqttClients)
 
             true
             // TODO: retain
@@ -338,6 +359,8 @@ let new = () => {
         if (!numIsIncorrect(num)) {
             let b = Bytes.fromString(payload)
             let k = Int32.toNumber(Bytes.getInt8U(0, b)) >> 4
+
+            schedYield()
 
             match (k) {
                 _ when k == _CONNECT  => {
@@ -402,8 +425,11 @@ let new = () => {
                     }
 
                     if (callbackEnabled) {
-                        cbReceive(mqttClients[num],Bytes.toString(p),Bytes.toString(m))
-                        callbackEnabled = false
+                        let client = Map.get(num, mqttClients)
+                        if (Option.isSome(client)) {        
+                            cbReceive(Option.unwrap(client),Bytes.toString(p),Bytes.toString(m))
+                            callbackEnabled = false
+                        }
                     }
 
                     void
@@ -448,18 +474,26 @@ let new = () => {
     }
  
     let _initialize = () => {
-
-        for (let mut i = 0; i < 5; i = incr(i)) {
-            mqttClients[i].state = false;
-            for (let mut j = 0; j < _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX; j = incr(j)) {
-                mqttClients[i].subscriptions[j].status = false
-            }
-        }
-
+        
+        Map.set(_MQTTBROKER_MY_NUM, {
+            state: true, 
+            socketClient: None,
+            subscriptions: Map.make() 
+        } : MqttClient, mqttClients)
+    
         socketServer.onConnected(
-            (client) => {
+            (socketClient) => {
                 print("Client connected")
-                mqttClients[client.getFileDescriptorNumber()].socketClient = Some(client)
+                let client = Map.get(socketClient.getFileDescriptorNumber(), mqttClients)
+                if (Option.isSome(client)) {   
+                    Option.unwrap(client).socketClient = Some(socketClient)
+                } else {
+                    Map.set(socketClient.getFileDescriptorNumber(), {
+                        state: false, 
+                        socketClient: Some(socketClient),
+                        subscriptions: Map.make() 
+                    } : MqttClient, mqttClients)
+                }
                 void
             }
         )

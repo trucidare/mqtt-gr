@@ -61,18 +61,39 @@ let debug = (text) => {
     }
 }
 
+/**
+ * Mqtt subscription record
+ * 
+ * Defines a subscription from a client
+ *
+ * @since v0.1.0
+ */
 record MqttSubscription {
     mut status: Bool,
     mut topicName: String,
     mut topicLength: Number
 }
 
+/**
+ * Mqtt client record
+ *
+ * Holds the fd reference, state and the subscriptions
+ *
+ * @since v0.1.0
+ */
 record MqttClient {
     mut state: Bool,
     mut socketClient: Option<Client.Client>,
     subscriptions: Map.Map<String, MqttSubscription>
 }
 
+/**
+ * Mqtt broker
+ *
+ * The broker itself
+ *
+ * @since v0.1.0
+ */
 export record MqttBroker {
     initialize: () -> Void,
     start: () -> Void,
@@ -85,6 +106,16 @@ export record MqttBroker {
 }
 
 
+/**
+ * Create new broker instance
+ *
+ * @returns Mqtt broker instance
+ *
+ * @example new()
+ * 
+ * @since v0.1.0
+ * 
+ */
 export let new = () => {
     let mut callbackEnabled = false
     let socketServer = Server.new(0, 10)
@@ -92,7 +123,7 @@ export let new = () => {
 
     let mut cbReceive = (cb: client: MqttClient,topic: String, message: String) => {void}
 
-
+    
     let msbLsb = (byte) => {
         (byte <<8) + (byte+1)
     }

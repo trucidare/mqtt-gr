@@ -3,12 +3,19 @@
  */
 
 import WasmI32, {  add as (+), mul as (*), shl as (<<), shrS as (>>), ne as (!=), or as (|)} from "runtime/unsafe/wasmi32"
-import File, { fdClose, FdRead} from "sys/file"
+import File, { fdClose, FdRead, fdDatasync} from "sys/file"
 import SocketWasi, {sock_recv, sock_send, sock_accept, sock_shutdown, poll_oneoff} from "./wasi"
 import Wasi from "runtime/wasi"
 import Memory from "runtime/unsafe/memory"
 import {allocateString, tagSimpleNumber} from "runtime/dataStructures"
 import String from "string"
+import Bytes from "bytes"
+
+let debug = (section ,text) => {
+  if (1 == 0) {
+    print("["++section++"] -> "++text)
+  }
+}
 
 /**
  * Own file descriptor enum
@@ -286,6 +293,8 @@ export let socketSend = (fd: FileDescriptor, content: String) => {
   WasmI32.store(iovs, WasmI32.load(strPtr, 4n), 4n)
 
   let mut nwritten = 0n
+  
+  debug("String",content)
 
   let err = sock_send(fd, iovs, 1n, flags, nwritten)
   sock_shutdown(fd,combineSdFlags(0n, []))
@@ -305,6 +314,7 @@ export let socketSend = (fd: FileDescriptor, content: String) => {
 @unsafe
 export let socketSendRaw = (fd: FileDescriptor, content: Bytes, length: Number) => {
   let fdArg = fd
+  let a = match(fd) {FileDescriptor(n) => File.FileDescriptor(n)}
   let fd = match(fdArg) {FileDescriptor(n) => WasmI32.fromGrain(n) >> 1n}
   
   let flags = combineSiFlags(0n, [Default])
@@ -315,14 +325,18 @@ export let socketSendRaw = (fd: FileDescriptor, content: Bytes, length: Number) 
   WasmI32.store(iovs, strPtr + 8n, 0n)
   WasmI32.store(iovs, WasmI32.load(strPtr, 4n), 4n)
 
+  debug("Raw",toString(content))
+
   let mut nwritten = 0n
 
   let err = sock_send(fd, iovs, 1n, flags, nwritten)
-  sock_shutdown(fd,combineSdFlags(0n, []))
+  //fdSync(a)
+  //sock_shutdown(fd,combineSdFlags(0n, [Wr]))
   //fdClose(a)
 
   if (err != Wasi._ESUCCESS) {
     Memory.free(iovs)
+    debug("Errors", toString(tagSimpleNumber(err)))
     Err(Wasi.SystemError(tagSimpleNumber(err)))
   } else {
     nwritten = WasmI32.load(nwritten, 0n)
@@ -373,14 +387,26 @@ export let socketReceive = (fd: FileDescriptor, size: Number) => {
       WasmI32.store(strPtr, nread, 4n)
       Memory.free(buffer)
 
-      Ok((WasmI32.toGrain(strPtr) : String, tagSimpleNumber(nread)))
+      let str  =WasmI32.toGrain(strPtr) : String;
+      debug("Recv",toString(Bytes.fromString(str)))
+
+      Ok((str, tagSimpleNumber(nread)))
     }
 }
 
 @unsafe
 export let socketClose = (fd: FileDescriptor) => {
-    let a = match(fd) { FileDescriptor(n) => File.FileDescriptor(n) }
+    let a = match(fd) { FileDescriptor(n) => File.FileDescriptor(n) }    
+    let fd = match(fd) { FileDescriptor(n) => WasmI32.fromGrain(n)}
+    sock_shutdown(fd,combineSdFlags(0n, [Rd,Wr]))
     fdClose(a)
+    void
+}
+
+@unsafe
+export let flush = (fd: FileDescriptor) => {
+    let a = match(fd) { FileDescriptor(n) => File.FileDescriptor(n) }    
+    fdDatasync(a)
     void
 }
 

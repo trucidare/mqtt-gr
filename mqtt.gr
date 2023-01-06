@@ -58,7 +58,7 @@ let _CONNECT_REFUSED_BUP = 4
 let _CONNECT_REFUSED_NA = 5  
 
 let debug = (text) => {
-    if (1 == 1) {
+    if (1 == 0) {
         print(text)
     }
 }
@@ -81,7 +81,7 @@ record MqttBroker {
     connect: (Number) -> Void,
     subscribe: (String) -> Void,
     unsubscribe: (String) ->Void,
-    publish: (String, Bytes, Number, Bool) -> Void,
+    publish: (String, String, Bool) -> Void,
     onReceive: ((MqttClient, String, String) -> Void) -> Void,
 }
 
@@ -90,14 +90,6 @@ let new = () => {
     let mut callbackEnabled = false
     let socketServer = Server.new(0, 10)
     let mqttClients = Map.make()
-
-           /**
-             * 10, {
-                state: false, 
-                socketClient: None,
-                subscriptions: Map.make() 
-            } : MqttClient
-             */
 
     let mut cbReceive = (cb: client: MqttClient,topic: String, message: String) => {void}
 
@@ -185,11 +177,11 @@ let new = () => {
             },
             None => {
                 let client = Map.get(num, mqttClients)
-            if (Option.isSome(client)) {    
-                Map.forEach((x, y) => {
-                    y.status = false
-                }, Option.unwrap(client).subscriptions)
-            }
+                if (Option.isSome(client)) {    
+                    Map.forEach((x, y) => {
+                        y.status = false
+                    }, Option.unwrap(client).subscriptions)
+                }
             }
         }
         void
@@ -298,10 +290,10 @@ let new = () => {
     }
 
     let sendMessage = (num: Number, topic: Bytes, payload: Bytes) => {
-        let remainingLength = Bytes.length(topic) + Bytes.length(payload) + 4
+        let remainingLength = Bytes.length(topic) + Bytes.length(payload) + 2
         let topicLength = Bytes.length(topic)
 
-        let answer = Bytes.make(remainingLength)
+        let answer = Bytes.make(remainingLength+2)
 
         Bytes.setInt8(0, Int32.fromNumber((_PUBLISH << 4) | 0x00), answer)
         Bytes.setInt8(1, Int32.fromNumber(remainingLength), answer)
@@ -312,7 +304,7 @@ let new = () => {
             Bytes.setInt8(i, Bytes.getInt8U(i-4, topic), answer)
         }
 
-        for (let mut i = topicLength + 4; i < remainingLength  ; i += 1) {
+        for (let mut i = topicLength + 4; i < remainingLength +2 ; i += 1) {
             Bytes.setInt8(i, Bytes.getInt8U(i - topicLength - 4, payload), answer)
         }
         
@@ -324,7 +316,7 @@ let new = () => {
         void
     }
     
-    let publishToClient = (num: Number, topic: Bytes, payload: Bytes, retain: Number) => {        
+    let publishToClient = (topic: Bytes, payload: Bytes, retain: Number) => {        
         if (Bytes.length(topic) <= _MQTTBROKER_TOPIC_MAX_LENGTH) {
             let topicStr = Bytes.toString(topic)
 
@@ -411,7 +403,7 @@ let new = () => {
 
                     debug("[PUBLISH]["++ toString(num) ++"][DUP "++ toString(dup) ++"][QOS "++ toString(qos) ++"][RETAIN "++ toString(retain) ++"][Topic "++Bytes.toString(p)++"]")
 
-                    publishToClient(num, p,m, retain  )    
+                    publishToClient(p,m, retain  )    
 
                     match (qos) {
                         _ when qos == 0 => {void},
@@ -483,7 +475,6 @@ let new = () => {
     
         socketServer.onConnected(
             (socketClient) => {
-                print("Client connected")
                 let client = Map.get(socketClient.getFileDescriptorNumber(), mqttClients)
                 if (Option.isSome(client)) {   
                     Option.unwrap(client).socketClient = Some(socketClient)
@@ -501,7 +492,10 @@ let new = () => {
 
         socketServer.onDisconnected(
             (client) => {
-                print("Client disconnected")
+                let found = Map.get(client.getFileDescriptorNumber(), mqttClients)
+                if (Option.isSome(found)) {   
+                    Map.remove(client.getFileDescriptorNumber(), mqttClients)
+                }
                 void
             }
         )
@@ -530,7 +524,15 @@ let new = () => {
     }
 
     
-    let _publish = (topic: String, payload: Bytes, length: Number, retain: Bool) => {
+    let _publish = (topic: String, payload: String,  retain: Bool) => {
+        let t = Bytes.fromString(topic)
+        let p = Bytes.fromString(payload)
+        let mut ret = 0;
+        
+        if (retain) {
+            ret = 1
+        }
+        publishToClient(t, p, ret)
         void
     }
 

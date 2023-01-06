@@ -12,6 +12,8 @@ let broker = Mqtt.new()
 broker.initialize()
 broker.onReceive((client, topic, message) => {
     print("Topic: "++ topic ++ " - Message: " ++ message)
+    if (topic == "/a")
+        broker.publish("/b", "hui", false)
     void
 })
 broker.subscribe("#")

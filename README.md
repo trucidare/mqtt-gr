@@ -21,3 +21,7 @@ Publish
 
 Console
 ![Console](.assets/3.png)
+
+# Credits
+
+Mostly translated from: https://github.com/xDWart/MQTTbroker

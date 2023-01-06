@@ -1,15 +1,19 @@
 export *
 
 import Server from "./libs/sockets-gr/server"
+import Client from "./libs/sockets-gr/client"
 import Array from "array"
 import String from "string"
 import Char from "char"
+import Bytes from "bytes"
+import Option from "option"
+import Int32 from "int32"
 
 let _MQTT_VERSION_3_1_1 = 4
-let _MQTTBROKER_MY_NUM =  4
-let _MQTTBROKER_MAX_NUM = 5
+let _MQTTBROKER_MY_NUM =  0
+let _MQTTBROKER_MAX_NUM = 10
 
-let _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX =       5
+let _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX =       10
 let _MQTTBROKER_MESSAGE_STACK_MAX =              5
 let _MQTTBROKER_TOPIC_MAX_LENGTH =               64
 let _MQTTBROKER_PAYLOAD_MAX_LENGTH =             255
@@ -43,14 +47,18 @@ let _SESSION_PRESENT_ZERO = 0
 let _SESSION_PRESENT_ONE = 1
 
 // Connack rc
-let _CONNECT_ACCEPTED = 0    //"Connection Accepted"
-let _CONNECT_REFUSED_UPV = 1 //"Connection Refused: unacceptable protocol version"
-let _CONNECT_REFUSED_IR = 2  //"Connection Refused: identifier rejected"
-let _CONNECT_REFUSED_SU = 3  //"Connection Refused: server unavailable"
-let _CONNECT_REFUSED_BUP = 4 //"Connection Refused: bad user name or password"
-let _CONNECT_REFUSED_NA = 5  //"Connection Refused: not authorized"
+let _CONNECT_ACCEPTED = 0    
+let _CONNECT_REFUSED_UPV = 1 
+let _CONNECT_REFUSED_IR = 2  
+let _CONNECT_REFUSED_SU = 3  
+let _CONNECT_REFUSED_BUP = 4 
+let _CONNECT_REFUSED_NA = 5  
 
-
+let debug = (text) => {
+    if (1 == 0) {
+        print(text)
+    }
+}
 record MqttSubscription {
     mut status: Bool,
     mut topicName: String,
@@ -59,6 +67,7 @@ record MqttSubscription {
 
 record MqttClient {
     mut state: Bool,
+    mut socketClient: Option<Client.Client>,
     subscriptions: Array<MqttSubscription>
 }
 
@@ -67,17 +76,19 @@ record MqttBroker {
     start: () -> Void,
     loop: () -> Void,
     connect: (Number) -> Void,
-    subscripe: (String) -> Void,
+    subscribe: (String) -> Void,
     unsubscribe: (String) ->Void,
     publish: (String, Bytes, Number, Bool) -> Void,
-    onReceive: ((MqttClient, String) -> Void) -> Void,
+    onReceive: ((MqttClient, String, String) -> Void) -> Void,
 }
 
 
 let new = () => {
-    let socketServer = Server.new(0, 5)
-    let mqttClients = Array.make(5, {
+    let mut callbackEnabled = false
+    let socketServer = Server.new(0, 10)
+    let mqttClients = Array.make(10, {
                 state: false, 
+                socketClient: None,
                 subscriptions: Array.make(_MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX, {
                     status: false, 
                     topicName: "", 
@@ -85,16 +96,17 @@ let new = () => {
                 } : MqttSubscription)
             } : MqttClient)
 
-    let mut cbReceive = (cb: client: MqttClient, message: String) => {void}
+    let mut cbReceive = (cb: client: MqttClient,topic: String, message: String) => {void}
 
     let msbLsb = (byte) => {
         (byte <<8) + (byte+1)
     }
 
-    let compare = (topic: String, length: Number, subscription: MqttSubscription) => {
+    let compare = (topic: String, subscription: MqttSubscription) => {
         let mut cs = 0
         let mut ct = 0
         let mut result = false
+        let length = String.length(topic)
 
         for (ct = 0; ct < length; ct += 1) {
 
@@ -136,9 +148,36 @@ let new = () => {
         result
     }
 
-    let subscribe = (num: Number, topic: String, length: Number) => {
-        // TODO
-        void
+    let subscribeInternal = (num: Number, topic: String, length: Number) => {
+        let mut result = false;
+        let mut clear = _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX
+
+        if (length < _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX) {
+
+            for (let mut i = 0; i < _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX; i += 1) {
+                if (!mqttClients[num].subscriptions[i].status) {
+                    if (clear == _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX) {
+                        clear = i
+                    } else {
+                        if (mqttClients[num].subscriptions[i].topicName == topic) {
+                            result = true
+                            break
+                        }
+                    }
+                }
+            }
+        }
+
+        if (clear != _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX) {
+            mqttClients[num].subscriptions[clear].status = true
+            mqttClients[num].subscriptions[clear].topicName = topic
+            mqttClients[num].subscriptions[clear].topicLength = length
+
+            result = true 
+        } else {
+            result = false;
+        }
+        result
     }   
 
     let unsubscribe = (num: Number, topic: Option<String>, length: Number) => {
@@ -177,10 +216,238 @@ let new = () => {
         }
     }
 
+
+    let _connect = (num: Number) => {
+        mqttClients[num].state = true
+    }
+
+    let _disconnect = (num: Number) => {
+        if (!numIsIncorrect(num)) {
+            unsubscribe(num, None, 0)
+            mqttClients[num].state = false
+            socketServer.disconnectClient(Option.unwrap(mqttClients[num].socketClient))
+        }
+    }
+
+    let _subscribe = (topic: String) => {
+        subscribeInternal(_MQTTBROKER_MY_NUM, topic, String.length(topic))
+        void
+    }
+
+    let _unsubscribe = (topic: String) => {
+        unsubscribe(_MQTTBROKER_MY_NUM, Some(topic), String.length(topic))
+    }
+
+
+    let sendAnswer = (num: Number, fixedHeader: Number, fixedHeaderLsb: Number, fixedHeaderRemaining: Number, variableHeader: Bytes, variableHeaderLength: Number, payload: Option<Bytes>, payloadLength: Option<Number>) => {
+        let mut return = false
+        let mut ii = 0
+
+        let answer = Bytes.make(fixedHeaderRemaining +2)
+
+        Bytes.setInt8(0, Int32.fromNumber(((fixedHeader << 4) | fixedHeaderLsb)), answer)
+        Bytes.setInt8(1, Int32.fromNumber(fixedHeaderRemaining), answer)
+
+        for (let mut i = 2; i < variableHeaderLength + 2; i+=1) {
+            Bytes.setInt8(i, Bytes.getInt8U(i-2, variableHeader) ,answer)
+            ii = i
+        }
+
+        match (fixedHeader) {
+            _ when fixedHeader == _CONNACK => debug("[MQTT]["++toString(i)++"][SEND] CONNACK"),
+            _ when fixedHeader == _SUBACK => {
+                for (let mut i = 0; i < Option.unwrap(payloadLength); i += 1) {
+                    Bytes.setInt8(i, Bytes.getInt8U(i,  Option.unwrap(payload)) ,answer)
+                }
+                debug("[MQTT]["++toString(i)++"][SEND] SUBACK")
+                void
+            },
+            _ when fixedHeader == _UNSUBACK => debug("[MQTT]["++toString(i)++"][SEND] UNSUBACK"),
+            _ when fixedHeader == _PINGRESP => debug("[MQTT]["++toString(i)++"][SEND] PINGRESP"),
+            _ => {
+                return = true
+            }
+        }
+        
+        if (!return) {
+            
+            // TODO Send binary: answer_msg, fixedHeaderRemaining +2
+            socketServer.sendBytes(Option.unwrap(mqttClients[num].socketClient),  answer, Bytes.length(answer) )
+            void
+        }
+        void
+    }
+
+    let sendMessage = (num: Number, topic: Bytes, payload: Bytes) => {
+        let remainingLength = Bytes.length(topic) + Bytes.length(payload) + 4
+        let topicLength = Bytes.length(topic)
+
+        let answer = Bytes.make(remainingLength)
+
+        Bytes.setInt8(0, Int32.fromNumber((_PUBLISH << 4) | 0x00), answer)
+        Bytes.setInt8(1, Int32.fromNumber(remainingLength), answer)
+        Bytes.setInt8(2, 0l, answer)
+        Bytes.setInt8(3, Int32.fromNumber(topicLength), answer)
+
+        for (let mut i = 4; i < topicLength+4; i += 1) {
+            Bytes.setInt8(i, Bytes.getInt8U(i-4, topic), answer)
+        }
+
+        for (let mut i = topicLength + 4; i < remainingLength  ; i += 1) {
+            Bytes.setInt8(i, Bytes.getInt8U(i - topicLength - 4, payload), answer)
+        }
+        
+        socketServer.sendBytes(Option.unwrap(mqttClients[num].socketClient),  answer, Bytes.length(answer))
+        void
+    }
     
+    let publishToClient = (num: Number, topic: Bytes, payload: Bytes, retain: Number) => {
+        if (Bytes.length(topic) <= _MQTTBROKER_TOPIC_MAX_LENGTH) {
+            let topicStr = Bytes.toString(topic)
+
+            for (let mut i = 0; i < _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX; i += 1) {
+                if (i == num) {
+                    continue
+                } else {
+                    if (clientIsConnected(i)) {
+                        for (let mut j = 0; j < _MQTTBROKER_CLIENT_SUBSCRIPTIONS_MAX; j += 1) {
+                            if (mqttClients[i].subscriptions[j].status) {
+                                if (compare(topicStr, mqttClients[i].subscriptions[j])) {
+                                    if (i == _MQTTBROKER_MY_NUM) {
+                                        callbackEnabled  = true
+                                    } else {
+                                        sendMessage(i, topic, payload)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            true
+            // TODO: retain
+        } else {
+            debug("[PUBLISH] Topic length to long!")
+            false
+        }
+        false
+    }
+
+    let parsing = (num: Number, payload: String, length: Number) => {
+        if (!numIsIncorrect(num)) {
+            let b = Bytes.fromString(payload)
+            let k = Int32.toNumber(Bytes.getInt8U(0, b)) >> 4
+
+            match (k) {
+                _ when k == _CONNECT  => {
+                    let variableHeader = Bytes.make(2);
+                    let protocolLevel = String.charCodeAt(8,payload);
+                    let connectFlags = String.charCodeAt(9,payload);
+                    
+                    debug("[CONNECT] " ++ toString(protocolLevel) ++ " - " ++ toString(connectFlags))
+
+                    Bytes.setInt8(0, Int32.fromNumber(0x01 & _SESSION_PRESENT_ZERO), variableHeader)
+
+                    if (protocolLevel == _MQTT_VERSION_3_1_1) {
+                        Bytes.setInt8(1, Int32.fromNumber( _CONNECT_ACCEPTED), variableHeader)
+                        sendAnswer(num, _CONNACK, 0, 2, variableHeader, 2, None, None)
+                        _connect(num)
+                    } else {
+                        Bytes.setInt8(1, Int32.fromNumber( _CONNECT_REFUSED_UPV), variableHeader)
+                        sendAnswer(num, _CONNACK, 0, 2, variableHeader, 2, None, None)
+                        _disconnect(num)
+                    }
+
+                },
+                _ when k == _PUBLISH => {
+                    let z = Int32.toNumber(Bytes.getInt8U(0, b)) 
+                    let dup = (z >> 3) & 0x1 // TODO
+                    let qos = (z >> 1) & 0x3 // TODO
+                    let retain = z & 0x1
+
+                    let remainingLength = Int32.toNumber(Bytes.getInt8U(1,b))
+                    let mut lengthTopic = Int32.toNumber( Bytes.getInt8S(3,b))
+
+                    let topic = Bytes.toString(Bytes.slice(4,Bytes.length(b) - remainingLength, b))
+
+                    if (lengthTopic > 255) {
+                        lengthTopic = _MQTTBROKER_TOPIC_MAX_LENGTH
+                    }
+
+                    let mut packetIdentifier = Bytes.make(0)
+
+                    if (qos > 0) {
+                        packetIdentifier = Bytes.make(1)
+                        Bytes.setInt8(0,Bytes.getInt8U(4+lengthTopic,b), packetIdentifier)
+                    }
+
+
+                    let p = Bytes.slice(4,lengthTopic, b)
+                    let m = Bytes.slice(4+Bytes.length(packetIdentifier) + lengthTopic, Bytes.length(b)- (4+Bytes.length(packetIdentifier) + lengthTopic), b)
+
+                    debug("[PUBLISH]["++ toString(num) ++"][DUP "++ toString(dup) ++"][QOS "++ toString(qos) ++"][RETAIN "++ toString(retain) ++"][Topic "++Bytes.toString(p)++"]")
+
+                    publishToClient(num, p,m, retain  )    
+
+                    match (qos) {
+                        _ when qos == 0 => {void},
+                        _ when qos == 1 => sendAnswer(num, _PUBACK,0,2, Bytes.make(0), 0, None, None),
+                        _ when qos == 2 => {
+                            sendAnswer(num, _PUBREC,0,2, Bytes.make(0), 0, None, None);
+                            sendAnswer(num, _PUBREL,0,2, Bytes.make(0), 0, None, None);
+                            sendAnswer(num, _PUBCOMP,0,2, Bytes.make(0), 0, None, None);
+                        },
+                        _ => void
+                    }
+
+                    if (callbackEnabled) {
+                        cbReceive(mqttClients[num],Bytes.toString(p),Bytes.toString(m))
+                        callbackEnabled = false
+                    }
+
+                    void
+                },
+                _ when k == _SUBSCRIBE => {
+                    let packetIdentifier = msbLsb(Int32.toNumber( Bytes.getInt8U(2,b)))          
+                    let lengthMsbLsb = msbLsb(Int32.toNumber( Bytes.getInt8U(4,b)))          
+                    let requestedQos = Bytes.slice(6 + lengthMsbLsb,1,b)
+                    let topic = Bytes.toString(Bytes.slice(6,Bytes.length(b) - 6, b))
+
+                    debug("[SUBSCRIBE]["++ toString(num) ++"][Paket: "++ toString(packetIdentifier) ++ "][Length: "++ toString(lengthMsbLsb) ++"][Qos: "++ Bytes.toString(requestedQos) ++"][Topic: "++ topic++ "]")
+                    subscribeInternal(num, topic, String.length(topic))
+                    
+                    let result = Bytes.slice(2,2, b)
+                    sendAnswer(num, _SUBACK, 0, 3, result, Bytes.length(result), Some(requestedQos), Some(1))  
+                    void
+                },
+                _ when k == _UNSUBSCRIBE => {
+                    let packetIdentifier = msbLsb(Int32.toNumber( Bytes.getInt8U(2,b)))          
+                    let lengthMsbLsb = msbLsb(Int32.toNumber( Bytes.getInt8U(4,b)))          
+                    let topic = Bytes.toString(Bytes.slice(6,Bytes.length(b) - 6, b))
+                    let result = Bytes.slice(2,2,b)
+
+                    debug("[UNSUBSCRIBE]["++ toString(num) ++"][Paket: "++ toString(packetIdentifier) ++ "][Length: "++ toString(lengthMsbLsb) ++"][Topic: "++ topic++ "]")
+                    sendAnswer(num, _UNSUBACK, 0, 2, result, Bytes.length(result), None, None);
+                    void
+                },
+                _ when k == _PINGREQ => {
+                    debug("[PINGREQ]["++ toString(num) ++"]")
+                    sendAnswer(num, _PINGRESP,0,2, Bytes.make(0), 0, None, None);
+                    void    
+                },
+                _ when k == _DISCONNECT => {
+                    debug("[DISCONNECT]["++ toString(num) ++"]")
+                    _disconnect(num);
+                    void
+                },
+                _ => debug("[UNKNOWN]")
+            }
+        }
+        void
+    }
  
     let _initialize = () => {
-        print(compare("/hallo/welt/1", 13 , {status: true, topicName: "/hallo/welt/2", topicLength: 13}))
 
         for (let mut i = 0; i < 5; i = incr(i)) {
             mqttClients[i].state = false;
@@ -192,6 +459,7 @@ let new = () => {
         socketServer.onConnected(
             (client) => {
                 print("Client connected")
+                mqttClients[client.getFileDescriptorNumber()].socketClient = Some(client)
                 void
             }
         )
@@ -206,7 +474,7 @@ let new = () => {
 
         socketServer.onReceive(
             (client, message) => {
-                print("Client want: \r\n"++ message)
+                parsing(client.getFileDescriptorNumber(), message, String.length(message))
                 void
             }
         )
@@ -220,49 +488,17 @@ let new = () => {
 
     let _loop = () => {
         socketServer.accecptClient();
-        
         void
     }
 
-    let _setReceiveCallback = (cb: ((MqttClient, String) -> Void)) => {
+    let _setReceiveCallback = (cb: ((MqttClient, String, String) -> Void)) => {
         cbReceive = cb
     }
 
-
-    let _connect = (num: Number) => {
-        mqttClients[num].state = true
-    }
-
-    let _subscribe = (topic: String) => {
-        subscribe(_MQTTBROKER_MY_NUM, topic, String.length(topic))
-    }
-
-    let _unsubscribe = (topic: String) => {
-        unsubscribe(_MQTTBROKER_MY_NUM, Some(topic), String.length(topic))
-    }
-
-    let _disconnect = (num: Number) => {
-        if (!numIsIncorrect(num)) {
-            unsubscribe(num, None, 0)
-            mqttClients[num].state = false
-            // TODO: Disconnect fd from server
-        }
-    }
-
+    
     let _publish = (topic: String, payload: Bytes, length: Number, retain: Bool) => {
         void
     }
-
-    let sendAnswer = (num: Number, fixedHeader: Bytes, fixedHeaderLsb: Bytes, fixedHeaderRemaining: Number, payload: Bytes, payloadLength: Number) => {
-        let mut i = 0;
-        let answerMsg = Array.make(fixedHeaderRemaining + 2,0);
-        void
-    }
-
-    // TODO: Publish
-    // TODO: sendMessage
-    // TODO: sendAnswer
-    // TODO: parinsg
 
     // return
     {
@@ -270,7 +506,7 @@ let new = () => {
         start: _start,
         loop: _loop,
         connect: _connect,
-        subscripe: _subscribe,
+        subscribe: _subscribe,
         unsubscribe: _unsubscribe,
         publish: _publish,
         onReceive: _setReceiveCallback,

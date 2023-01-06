@@ -16,6 +16,8 @@ record Server {
     stop: () -> Void,
     accecptClient: () -> Void,
     send: (Client.Client, String) -> Bool,
+    sendBytes: (Client.Client, Bytes, Number) -> Bool,
+    disconnectClient: (Client.Client) -> Void,
     onConnected: ((Client.Client) -> Void) -> Void,
     onDisconnected: ((Client.Client) -> Void) -> Void,
     onReceive: ((Client.Client, String) -> Void) -> Void,
@@ -170,6 +172,23 @@ let new = (fd: Number, maxClients: Number) => {
     }
 
     /**
+     * Send a message to a client
+     * @param client: The client instancs
+     * @param bytes: Bytes to send
+     * @param length: Length of the byte array 
+     * 
+     * @since v0.1.0
+     */
+    let _sendBytes = (client: Client.Client, bytes: Bytes, length: Number) => {
+        if (List.contains(client, clients)) {
+            let res = Socket.socketSendRaw(client.fileDescriptor, bytes, length)
+            true
+        } else {
+            false
+        }
+    }
+
+    /**
      * Handle the clients
      * 
      * @example _handleClients()
@@ -222,12 +241,18 @@ let new = (fd: Number, maxClients: Number) => {
         Socket.sleep(1)
     }
 
+    let _disconnectClient = (client: Client.Client) => {
+        Socket.socketClose(client.fileDescriptor)
+    }
+
     // return
     {
         start: _start,
         stop: _stop,
         accecptClient: _acceptClient,
         send: _send,
+        sendBytes: _sendBytes,
+        disconnectClient: _disconnectClient,
         onConnected: _setConnectedCallback,
         onDisconnected: _setDisconnectedCallback,
         onReceive: _setReceiveCallback,

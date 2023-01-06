@@ -277,7 +277,6 @@ export let socketSend = (fd: FileDescriptor, content: String) => {
   let fdArg = fd
   let fd = match(fdArg) {FileDescriptor(n) => WasmI32.fromGrain(n) >> 1n}
   
-  let len = WasmI32.fromGrain(String.length(content))
   let flags = combineSiFlags(0n, [Default])
   
   let iovs = Memory.malloc(3n * 4n)
@@ -302,6 +301,36 @@ export let socketSend = (fd: FileDescriptor, content: String) => {
     Ok(tagSimpleNumber(nwritten))
   }
 } 
+
+@unsafe
+export let socketSendRaw = (fd: FileDescriptor, content: Bytes, length: Number) => {
+  let fdArg = fd
+  let fd = match(fdArg) {FileDescriptor(n) => WasmI32.fromGrain(n) >> 1n}
+  
+  let flags = combineSiFlags(0n, [Default])
+  
+  let iovs = Memory.malloc(3n * 4n)
+  let strPtr = WasmI32.fromGrain(content)
+
+  WasmI32.store(iovs, strPtr + 8n, 0n)
+  WasmI32.store(iovs, WasmI32.load(strPtr, 4n), 4n)
+
+  let mut nwritten = 0n
+
+  let err = sock_send(fd, iovs, 1n, flags, nwritten)
+  sock_shutdown(fd,combineSdFlags(0n, []))
+  //fdClose(a)
+
+  if (err != Wasi._ESUCCESS) {
+    Memory.free(iovs)
+    Err(Wasi.SystemError(tagSimpleNumber(err)))
+  } else {
+    nwritten = WasmI32.load(nwritten, 0n)
+
+    Memory.free(iovs)
+    Ok(tagSimpleNumber(nwritten))
+  }
+}
 
 /**
  * Receiving over sockets
@@ -374,6 +403,6 @@ export let errNoFromSystemError = (err) => {
 
 @unsafe 
 export let sleep = (delay: Number) => {
-  SocketWasi.poll_oneoff(1000n,2n,2n)
+  SocketWasi.poll_oneoff(WasmI32.fromGrain(0),WasmI32.fromGrain(0),WasmI32.fromGrain(0),WasmI32.fromGrain(0))
   void
 }

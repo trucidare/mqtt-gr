@@ -1,16 +1,19 @@
 import Mqtt from "../mqtt"
 import Array from "array"
 import Char from "char"
+import Option from "option"
+import Bytes from "bytes"
+
 import {schedYield} from "sys/process"
 
 let broker = Mqtt.new()
 
 broker.initialize()
-broker.onReceive((client, message) => {
-    print("Message: " ++ message)
+broker.onReceive((client, topic, message) => {
+    print("Topic: "++ topic ++ " - Message: " ++ message)
     void
 })
-broker.subscripe("#")
+broker.subscribe("#")
 broker.start()
 
 print("Running")

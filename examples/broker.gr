@@ -23,7 +23,4 @@ print("Running")
 
 while(true) {
     broker.loop()
-
-    schedYield()
-    void
 }

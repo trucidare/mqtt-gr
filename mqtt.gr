@@ -9,7 +9,6 @@ import Int32 from "int32"
 import Map from "map"
 import {schedYield} from "sys/process"
 
-
 let _MQTT_VERSION_3_1_1 = 4
 let _MQTTBROKER_MY_NUM =  0
 let _MQTTBROKER_MAX_NUM = 10
@@ -105,7 +104,6 @@ export record MqttBroker {
     onReceive: ((MqttClient, String, String) -> Void) -> Void,
 }
 
-
 /**
  * Create new broker instance
  *
@@ -122,7 +120,6 @@ export let new = () => {
     let mqttClients = Map.make()
 
     let mut cbReceive = (cb: client: MqttClient,topic: String, message: String) => {void}
-
     
     let msbLsb = (byte) => {
         (byte <<8) + (byte+1)
@@ -547,6 +544,8 @@ export let new = () => {
 
     let _loop = () => {
         socketServer.accecptClient();
+        Server.sleep(3)
+        schedYield()
         void
     }
 
